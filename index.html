@@ -137,6 +137,13 @@ td.name{text-align:left;font-weight:600;}
 .mc .stats b{color:var(--text);}
 .ondeck{font-size:12px;color:var(--sub);margin-top:8px;text-align:center;}
 
+.defense-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
+.def-slot{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;min-height:44px;}
+.def-slot .pos{font-size:10px;color:var(--sub);letter-spacing:.04em;}
+.def-slot .nm{font-size:13px;font-weight:700;line-height:1.25;}
+.def-slot.empty .nm{color:var(--sub);font-weight:400;}
+.def-slot.pitcher{border-color:var(--strike);}
+
 .action-section{margin-top:14px;}
 .section-title{font-size:12px;color:var(--sub);letter-spacing:.05em;margin:14px 0 8px;text-transform:uppercase;}
 
@@ -226,6 +233,7 @@ td.name{text-align:left;font-weight:600;}
       <div class="base b1" id="baseIndicator1"></div>
       <div class="base home"></div>
     </div>
+    <div class="small center" id="baseRunnersLine"></div>
   </div>
 
   <div class="card">
@@ -235,6 +243,11 @@ td.name{text-align:left;font-weight:600;}
       <div class="mc" id="batterCard"></div>
     </div>
     <div class="ondeck" id="onDeckLine"></div>
+  </div>
+
+  <div class="card">
+    <div class="row between mb0"><div class="eyebrow mb0">현재 수비 라인업</div><div class="small" id="defenseTeamLabel"></div></div>
+    <div class="defense-grid" id="defenseGrid"></div>
   </div>
 
   <div class="action-section">
@@ -1060,6 +1073,8 @@ function renderAll(){
   renderLinescore();
   renderStatusStrip();
   renderDiamond();
+  renderBaseRunners();
+  renderDefense();
   renderMatchup();
   renderTabs();
   document.getElementById('undoBtn').disabled=!UNDO.length;
@@ -1103,6 +1118,32 @@ function renderDiamond(){
   document.getElementById('baseIndicator1').className='base b1'+(G.bases[1]?' on':'');
   document.getElementById('baseIndicator2').className='base b2'+(G.bases[2]?' on':'');
   document.getElementById('baseIndicator3').className='base b3'+(G.bases[3]?' on':'');
+}
+function renderBaseRunners(){
+  const tk=battingKey();
+  const parts=[1,2,3].map(b=>{
+    const rid=G.bases[b];
+    const label=b===1?'1루':b===2?'2루':'3루';
+    return rid?`${label}: ${ROSTER[tk][rid].name}`:`${label}: -`;
+  });
+  document.getElementById('baseRunnersLine').textContent=G.over?'':parts.join(' · ');
+}
+const FIELD_POSITIONS=['P','C','1B','2B','3B','SS','LF','CF','RF'];
+function renderDefense(){
+  const pk=pitchingKey();
+  document.getElementById('defenseTeamLabel').textContent=G.over?'':TEAM[pk].name;
+  const grid=document.getElementById('defenseGrid');
+  if(G.over){grid.innerHTML='';return;}
+  const lineup=TEAM[pk].lineup;
+  grid.innerHTML=FIELD_POSITIONS.map(pos=>{
+    if(pos==='P'){
+      const p=pitcherOf(pk);
+      return `<div class="def-slot pitcher"><div class="pos">P</div><div class="nm">${p?escapeHtml(p.name):'-'}</div></div>`;
+    }
+    const slot=lineup.find(s=>s.position===pos);
+    const p=slot?ROSTER[pk][slot.playerId]:null;
+    return `<div class="def-slot ${p?'':'empty'}"><div class="pos">${pos}</div><div class="nm">${p?escapeHtml(p.name):'-'}</div></div>`;
+  }).join('');
 }
 function renderMatchup(){
   if(G.over){
@@ -1201,10 +1242,15 @@ function renderLineupTab(){
   function teamBlock(tk){
     const rows=battingRowsFor(tk);
     const pit=pitcherOf(tk);
+    const bench=benchListOf(tk);
     return `<div class="section-title">${escapeHtml(TEAM[tk].name)} · 현재 투수: ${pit?escapeHtml(pit.name):'-'}</div>
       ${rows.map(r=>`<div class="lineup-row"><div class="order-badge">${r.order}</div>
         <div class="info"><div class="nm">${escapeHtml(r.p.name)} <span class="small">#${r.p.number||'-'}</span></div>
-        <div class="meta">${r.p.position}${r.p.id===TEAM[tk].pitcherId?' · ⚾투수 겸업':''}</div></div></div>`).join('')}`;
+        <div class="meta">${r.p.position}${r.p.id===TEAM[tk].pitcherId?' · ⚾투수 겸업':''}</div></div></div>`).join('')}
+      <div class="section-title">벤치 (${bench.length}명)</div>
+      ${bench.length?bench.map(p=>`<div class="lineup-row"><div class="order-badge" style="background:transparent;">·</div>
+        <div class="info"><div class="nm">${escapeHtml(p.name)} <span class="small">#${p.number||'-'}</span></div>
+        <div class="meta">${p.position}${p.pitch.outs>0||p.pitch.P>0?' · 투구 기록 있음':''}</div></div></div>`).join(''):'<div class="small">벤치 선수가 없습니다.</div>'}`;
   }
   el.innerHTML=teamBlock('away')+teamBlock('home');
 }
