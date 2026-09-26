@@ -176,13 +176,43 @@ td.name{text-align:left;font-weight:600;}
 .topbar .actions{display:flex;gap:6px;}
 
 .overbanner{background:linear-gradient(90deg,#241216,#1c1030);border:1px solid #4a2030;border-radius:12px;padding:12px;text-align:center;font-weight:800;margin-bottom:12px;color:#ffb4b4;}
+
+.file-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;}
+.file-card .fname{font-size:16px;font-weight:800;display:flex;align-items:center;gap:6px;}
+.file-card .fmeta{font-size:12px;color:var(--sub);margin:4px 0 10px;}
+.file-card .fscore{font-size:14px;font-weight:700;margin-bottom:10px;}
+.lock-ic{font-size:13px;}
+.empty-state{text-align:center;color:var(--sub);padding:40px 10px;font-size:13px;}
 </style>
 </head>
 <body>
 
+<!-- ============ FILE LIST SCREEN ============ -->
+<div id="filesScreen" class="screen">
+  <div class="topbar"><div class="brand">⚾ 라이브 스코어북</div><div class="small">경기 파일 관리</div></div>
+  <button class="btn primary block big" id="newFileBtn">🆕 새 경기 파일 만들기</button>
+  <div class="section-title">저장된 경기 파일</div>
+  <div id="filesListRoot"></div>
+</div>
+
 <!-- ============ SETUP SCREEN ============ -->
-<div id="setupScreen" class="screen">
-  <div class="topbar"><div class="brand">⚾ 라이브 스코어북</div><div class="small">경기 시작 전 설정</div></div>
+<div id="setupScreen" class="screen hidden">
+  <div class="topbar">
+    <div class="brand">⚾ 새 경기 파일</div>
+    <button class="btn small" id="setupBackBtn">← 파일 목록</button>
+  </div>
+
+  <div class="card">
+    <div class="eyebrow">경기 파일 정보</div>
+    <div class="field"><label>경기 파일 이름</label>
+      <input type="text" id="fileNameInput" placeholder="예: 9/27 연습경기"></div>
+    <div class="grid2">
+      <div class="field mb0"><label>비밀번호 (선택)</label>
+        <input type="text" id="filePasswordInput" placeholder="비워두면 잠금 없음"></div>
+      <div class="field mb0"><label>비밀번호 확인</label>
+        <input type="text" id="filePasswordConfirm" placeholder="비밀번호 다시 입력"></div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="eyebrow">경기 설정</div>
@@ -200,8 +230,8 @@ td.name{text-align:left;font-weight:600;}
   <div class="team-setup home" id="setupHome"></div>
 
   <button class="btn primary block big" id="startGameBtn">🏟️ 경기 시작</button>
-  <div class="small center mt12" id="resumeNotice"></div>
 </div>
+
 
 <!-- ============ GAME SCREEN ============ -->
 <div id="gameScreen" class="screen hidden">
@@ -297,8 +327,9 @@ td.name{text-align:left;font-weight:600;}
     </div>
     <div class="grid2 mt8">
       <button class="btn small block" onclick="manualEndGame()">🏁 경기 종료</button>
-      <button class="btn small block danger" onclick="confirmNewGame()">🗑️ 새 경기 시작</button>
+      <button class="btn small block" onclick="goToFileList()">📁 파일 목록으로</button>
     </div>
+    <button class="btn small block danger mt8" onclick="deleteCurrentFile()">🗑️ 이 경기 파일 삭제</button>
   </div>
 </div>
 
@@ -416,8 +447,32 @@ function moveSetupLineup(tk,idx,dir){
 function escapeHtml(str){return String(str==null?'':str).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 document.getElementById('startGameBtn').addEventListener('click',startGame);
+document.getElementById('setupBackBtn').addEventListener('click',()=>{
+  document.getElementById('setupScreen').classList.add('hidden');
+  document.getElementById('filesScreen').classList.remove('hidden');
+  renderFileList();
+});
+document.getElementById('newFileBtn').addEventListener('click',openNewFileSetup);
+
+function openNewFileSetup(){
+  setupState={
+    away:{name:'원정팀',players:{},lineup:[],pitcherId:null},
+    home:{name:'홈팀',players:{},lineup:[],pitcherId:null}
+  };
+  document.getElementById('fileNameInput').value='';
+  document.getElementById('filePasswordInput').value='';
+  document.getElementById('filePasswordConfirm').value='';
+  renderSetupTeam('away');
+  renderSetupTeam('home');
+  document.getElementById('filesScreen').classList.add('hidden');
+  document.getElementById('setupScreen').classList.remove('hidden');
+}
 
 function startGame(){
+  const fileName=document.getElementById('fileNameInput').value.trim();
+  const pw=document.getElementById('filePasswordInput').value;
+  const pwConfirm=document.getElementById('filePasswordConfirm').value;
+  if(pw!==pwConfirm){toast('비밀번호가 서로 일치하지 않습니다.');return;}
   for(const tk of ['away','home']){
     const s=setupState[tk];
     if(s.lineup.length<1){toast((tk==='away'?'원정팀':'홈팀')+' 타순을 1명 이상 등록해주세요.');return;}
@@ -450,9 +505,20 @@ function startGame(){
     startTime:Date.now()
   };
   UNDO=[];
+  const fileId=fileUid();
+  const store=loadStore();
+  store[fileId]={
+    id:fileId,
+    name:fileName||(TEAM.away.name+' vs '+TEAM.home.name),
+    passHash:pw?simpleHash(pw):null,
+    createdAt:Date.now(),
+    updatedAt:Date.now(),
+    data:{ROSTER,TEAM,G,TOTAL_INNINGS,ERA_BASIS}
+  };
+  saveStore(store);
+  currentFileId=fileId;
   document.getElementById('setupScreen').classList.add('hidden');
   document.getElementById('gameScreen').classList.remove('hidden');
-  save();
   renderAll();
 }
 
@@ -470,7 +536,7 @@ function currentPitcher(){return ROSTER[pitchingKey()][pitchingTeam().pitcherId]
 function pitcherOf(tk){return ROSTER[tk][TEAM[tk].pitcherId];}
 
 /* =========================================================================
-   UNDO / SAVE
+   UNDO / SAVE (경기 파일 시스템)
    ========================================================================= */
 function snapshot(){return JSON.stringify({ROSTER,TEAM,G,TOTAL_INNINGS,ERA_BASIS});}
 function pushUndo(){UNDO.push(snapshot());if(UNDO.length>300)UNDO.shift();}
@@ -482,28 +548,147 @@ function doUndo(){
 }
 document.getElementById('undoBtn').addEventListener('click',doUndo);
 
-const SAVE_KEY='baseball_scorebook_v1';
+const FILES_KEY='baseball_scorebook_files_v1';
+let currentFileId=null;
+function fileUid(){return 'f'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+function simpleHash(str){
+  let h=0;
+  for(let i=0;i<str.length;i++){h=(Math.imul(31,h)+str.charCodeAt(i))|0;}
+  return (h>>>0).toString(36);
+}
+function loadStore(){
+  try{return JSON.parse(localStorage.getItem(FILES_KEY))||{};}catch(e){return {};}
+}
+function saveStore(store){
+  try{localStorage.setItem(FILES_KEY,JSON.stringify(store));}catch(e){toast('저장에 실패했습니다. 저장 공간을 확인해주세요.');}
+}
 function save(){
-  try{localStorage.setItem(SAVE_KEY,JSON.stringify({ROSTER,TEAM,G,TOTAL_INNINGS,ERA_BASIS,setupState}));}catch(e){}
+  if(!currentFileId)return;
+  const store=loadStore();
+  if(!store[currentFileId])return;
+  store[currentFileId].data={ROSTER,TEAM,G,TOTAL_INNINGS,ERA_BASIS};
+  store[currentFileId].updatedAt=Date.now();
+  saveStore(store);
 }
-function loadIfAny(){
-  try{
-    const raw=localStorage.getItem(SAVE_KEY);
-    if(!raw)return false;
-    const o=JSON.parse(raw);
-    if(!o.G)return false;
-    document.getElementById('resumeNotice').innerHTML=`저장된 경기가 있습니다. <a href="#" id="resumeLink" style="color:var(--away);">이어서 진행하기 →</a>`;
-    document.getElementById('resumeLink').onclick=(e)=>{
-      e.preventDefault();
-      ROSTER=o.ROSTER;TEAM=o.TEAM;G=o.G;TOTAL_INNINGS=o.TOTAL_INNINGS||9;ERA_BASIS=o.ERA_BASIS||9;
-      document.getElementById('setupScreen').classList.add('hidden');
-      document.getElementById('gameScreen').classList.remove('hidden');
-      renderAll();
-    };
-    if(o.setupState) setupState=o.setupState;
-    return true;
-  }catch(e){return false;}
+
+/* =========================================================================
+   파일 목록 화면
+   ========================================================================= */
+function fmtDate(ts){
+  const d=new Date(ts);
+  const pad=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}.${pad(d.getMonth()+1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+function renderFileList(){
+  const store=loadStore();
+  const files=Object.values(store).sort((a,b)=>b.updatedAt-a.updatedAt);
+  const root=document.getElementById('filesListRoot');
+  if(!files.length){
+    root.innerHTML='<div class="empty-state">아직 저장된 경기 파일이 없습니다.<br>위 버튼으로 새 경기 파일을 만들어보세요.</div>';
+    return;
+  }
+  root.innerHTML=files.map(f=>{
+    const d=f.data;
+    const scoreLine=d&&d.G?`${d.TEAM.away.name} ${d.G.score.away} : ${d.G.score.home} ${d.TEAM.home.name}`:'설정 중';
+    const statusLine=d&&d.G?(d.G.over?'경기 종료':`${d.G.inning}회 ${d.G.half==='top'?'초':'말'} 진행중`):'';
+    return `<div class="file-card">
+      <div class="fname">${f.passHash?'<span class="lock-ic">🔒</span>':''}${escapeHtml(f.name)}</div>
+      <div class="fmeta">최근 수정: ${fmtDate(f.updatedAt)}${statusLine?' · '+statusLine:''}</div>
+      <div class="fscore">${escapeHtml(scoreLine)}</div>
+      <div class="grid2">
+        <button class="btn small primary" onclick="openFilePrompt('${f.id}')">📂 열기</button>
+        <button class="btn small danger" onclick="deleteFilePrompt('${f.id}')">🗑️ 삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+function openFilePrompt(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  if(!f){toast('파일을 찾을 수 없습니다.');renderFileList();return;}
+  if(!f.passHash){unlockAndOpen(fileId);return;}
+  const html=`
+    <div class="modal-head"><h3>🔒 ${escapeHtml(f.name)}</h3><div class="close-x" onclick="closeModal()">✕</div></div>
+    <div class="field"><label>비밀번호</label><input type="text" id="unlockPwInput" placeholder="비밀번호 입력"></div>
+    <button class="btn primary block big" onclick="attemptUnlock('${fileId}')">🔓 열기</button>
+  `;
+  openSheetModal(html);
+  setTimeout(()=>{const el=document.getElementById('unlockPwInput');if(el){el.focus();el.onkeydown=(e)=>{if(e.key==='Enter')attemptUnlock(fileId);};}},50);
+}
+function attemptUnlock(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  if(!f){toast('파일을 찾을 수 없습니다.');closeModal();renderFileList();return;}
+  const entered=document.getElementById('unlockPwInput').value;
+  if(simpleHash(entered)!==f.passHash){toast('비밀번호가 올바르지 않습니다.');return;}
+  closeModal();
+  unlockAndOpen(fileId);
+}
+function unlockAndOpen(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  if(!f||!f.data||!f.data.G){toast('파일을 불러올 수 없습니다.');renderFileList();return;}
+  ROSTER=f.data.ROSTER;TEAM=f.data.TEAM;G=f.data.G;
+  TOTAL_INNINGS=f.data.TOTAL_INNINGS||9;ERA_BASIS=f.data.ERA_BASIS||9;
+  currentFileId=fileId;UNDO=[];
+  document.getElementById('filesScreen').classList.add('hidden');
+  document.getElementById('gameScreen').classList.remove('hidden');
+  renderAll();
+}
+function deleteFilePrompt(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  if(!f){toast('파일을 찾을 수 없습니다.');renderFileList();return;}
+  if(!f.passHash){confirmDeleteFile(fileId);return;}
+  const html=`
+    <div class="modal-head"><h3>🔒 삭제 확인 — ${escapeHtml(f.name)}</h3><div class="close-x" onclick="closeModal()">✕</div></div>
+    <div class="small">이 파일은 비밀번호로 보호되어 있습니다. 삭제하려면 비밀번호를 입력하세요.</div>
+    <div class="field mt8"><label>비밀번호</label><input type="text" id="deletePwInput" placeholder="비밀번호 입력"></div>
+    <button class="btn danger block big" onclick="attemptDeleteWithPassword('${fileId}')">🗑️ 확인 후 삭제</button>
+  `;
+  openSheetModal(html);
+}
+function attemptDeleteWithPassword(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  if(!f){closeModal();renderFileList();return;}
+  const entered=document.getElementById('deletePwInput').value;
+  if(simpleHash(entered)!==f.passHash){toast('비밀번호가 올바르지 않습니다.');return;}
+  closeModal();
+  doDeleteFile(fileId);
+}
+function confirmDeleteFile(fileId){
+  const store=loadStore();
+  const f=store[fileId];
+  openConfirmModal('경기 파일 삭제',`"${f?f.name:''}" 파일을 삭제할까요? 되돌릴 수 없습니다.`,()=>{
+    closeModal();doDeleteFile(fileId);
+  });
+}
+function doDeleteFile(fileId){
+  const store=loadStore();
+  delete store[fileId];
+  saveStore(store);
+  if(currentFileId===fileId){
+    currentFileId=null;
+    document.getElementById('gameScreen').classList.add('hidden');
+    document.getElementById('filesScreen').classList.remove('hidden');
+  }
+  renderFileList();
+  toast('경기 파일이 삭제되었습니다.');
+}
+function goToFileList(){
+  save();
+  currentFileId=null;
+  document.getElementById('gameScreen').classList.add('hidden');
+  document.getElementById('filesScreen').classList.remove('hidden');
+  renderFileList();
+}
+function deleteCurrentFile(){
+  if(!currentFileId){toast('연결된 경기 파일이 없습니다.');return;}
+  deleteFilePrompt(currentFileId);
+}
+
+
 
 /* =========================================================================
    로그 / 토스트
@@ -1340,21 +1525,16 @@ function exportCSV(){
 }
 
 /* =========================================================================
-   새 경기 / 메뉴
+   메뉴
    ========================================================================= */
-function confirmNewGame(){
-  openConfirmModal('새 경기 시작','현재 경기 기록을 모두 지우고 새 경기를 시작할까요? 저장된 기록도 삭제됩니다.',()=>{
-    localStorage.removeItem(SAVE_KEY);
-    location.reload();
-  });
-}
 document.getElementById('menuBtn').addEventListener('click',()=>{
   const html=`
     <div class="modal-head"><h3>메뉴</h3><div class="close-x" onclick="closeModal()">✕</div></div>
     <button class="btn small block" onclick="copyShareText();closeModal();">💬 공유 텍스트 복사</button>
     <button class="btn small block mt8" onclick="exportCSV();closeModal();">📊 CSV 다운로드</button>
     <button class="btn small block mt8" onclick="manualEndGame();closeModal();">🏁 경기 종료</button>
-    <button class="btn small block danger mt8" onclick="confirmNewGame();">🗑️ 새 경기 시작</button>
+    <button class="btn small block mt8" onclick="closeModal();goToFileList();">📁 파일 목록으로</button>
+    <button class="btn small block danger mt8" onclick="closeModal();deleteCurrentFile();">🗑️ 이 경기 파일 삭제</button>
   `;
   openSheetModal(html);
 });
@@ -1362,9 +1542,7 @@ document.getElementById('menuBtn').addEventListener('click',()=>{
 /* =========================================================================
    초기화
    ========================================================================= */
-renderSetupTeam('away');
-renderSetupTeam('home');
-loadIfAny();
+renderFileList();
 </script>
 </body>
 </html>
